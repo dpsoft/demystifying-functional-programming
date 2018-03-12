@@ -1,11 +1,10 @@
-import cats.{Id, Monad}
-
-import scala.concurrent.{Await, Future}
-import scala.concurrent.ExecutionContext.Implicits.global
 import cats.data.{EitherT, OptionT}
 import cats.implicits._
+import cats.{Id, Monad}
 
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
+import scala.concurrent.{Await, Future}
 
 
 case class Box[T](value:T)
@@ -37,66 +36,6 @@ object TypeClass {
 
   def toHtml[A](value: A)(implicit writer: HtmlWriter[A]): String =
     writer.write(value)
-}
-
-
-object Semigroup {
-  trait Semigroup[A] {
-    /**
-      * Associativity means:
-      *
-      * combine(x, combine(y, z)) = combine(combine(x, y), z)
-      */
-    def append(x: A, y: A): A //combine | compose | whatever
-  }
-
-  implicit val intAdditionSemigroup: Semigroup[Int] =
-    new Semigroup[Int] {
-      override def append(x: Int, y: Int): Int = x + y
-  }
-
-  implicit def listCombineSemigroup[A]: Semigroup[List[A]] =
-    new Semigroup[List[A]] {
-      override def append(x: List[A], y: List[A]): List[A] = x ++ y
-    }
-
-  def append[A](x: A, y: A)(implicit semigroup: Semigroup[A]): A =
-    semigroup.append(x, y)
-
-  def combineAll[A](x: A, y: A)(implicit semigroup: Semigroup[A]): A =
-    semigroup.append(x, y)
-}
-
-object Monoid {
-  trait Monoid[A] extends Semigroup[A] {
-    /**
-      * Identity means:
-      *
-      * combine(x, empty) = combine(empty, x) = x
-      */
-    def empty: A
-  }
-
-  implicit val intMonoid:Monoid[Int] =
-    new Monoid[Int] {
-      def append(x: Int, y: Int): Int =  x + y
-      def empty: Int = 0
-    }
-
-  def combineAll[A](as: List[A])(implicit monoid: Monoid[A]): A =
-    as.foldLeft(monoid.empty)(monoid.append)
-
-  implicit val timesMonoid: Monoid[Times] = new Monoid[Times] {
-    def append(x: Times, y: Times): Times = Times(x.data ++ y.data)
-    def empty: Times = Times(Map.empty)
-  }
-
-
-  def reduce[A](as: List[A])(implicit monoid: Monoid[A]): A =
-    as.foldLeft(monoid.empty)(monoid.append)
-
-  case class Times(data: Map[String, FiniteDuration])
-
 }
 
 
