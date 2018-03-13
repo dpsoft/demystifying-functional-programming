@@ -1,5 +1,7 @@
 package abstractions
 
+import scala.language.higherKinds
+
 trait Monad[F[_]] extends Applicative[F] {
 
   def flatMap[A, B](fa: F[A])(f: A => F[B]): F[B]

@@ -1,114 +1,19 @@
-import cats.data.{EitherT, OptionT}
+package example
+
+import cats.data.EitherT
 import cats.implicits._
 import cats.{Id, Monad}
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.duration._
 import scala.concurrent.{Await, Future}
-
-
-case class Box[T](value:T)
-
-object TypeClass {
-  // The type class itself is a trait with a single type parameter.
-  trait HtmlWriter[A] {
-    def write(value: A): String
-  }
-
-  //Type class instances
-  implicit val intWriter:HtmlWriter[Int] =
-    new HtmlWriter[Int] {
-      override def write(value: Int): String =
-        value.toString
-    }
-
-  implicit val stringWriter:HtmlWriter[String] =
-    new HtmlWriter[String] {
-      override def write(value: String): String =
-        value.replaceAll("<", "&lt;").replaceAll(">", "&gt;")
-    }
-
-  //Extra type class instances
-  implicit def boxWriter[A]:HtmlWriter[Box[A]] =
-    new HtmlWriter[Box[A]] {
-      override def write(value: Box[A]): String = ???
-    }
-
-  def toHtml[A](value: A)(implicit writer: HtmlWriter[A]): String =
-    writer.write(value)
-}
-
-
-object OptionTExample extends App {
-  val greetingFutureOption: Future[Option[String]] = Future.successful(Some("Hello"))
-  val firstnameFuture: Future[String] = Future.successful("Jane")
-  val lastnameOption: Option[String] = Some("Doe")
-
-
-  val a: Future[Option[String]] = (for {
-    g <- OptionT(greetingFutureOption)
-    f <- OptionT.liftF(firstnameFuture)
-    l <- OptionT.fromOption[Future](lastnameOption)
-  } yield s"$g $f $l").value
-
-  Await.result(a, 1 second).foreach(println)
-}
-
-
-object Compose extends App {
-  val greetingOption: Option[String] = Some("Hello")
-  val firstNameOption: Option[String] = Some("John")
-  val lastNameOption: Option[String] = Some("Doe")
-
-  for {
-    g <- greetingOption
-    f <- firstNameOption
-    l <- lastNameOption
-  } yield s"$g $f $l"
-}
-
-object EitherTExample extends App {
-  import cats.implicits._
-
-  val greetingFutureEither: Future[Either[Throwable, String]] = Future.successful(Either.right("Hello"))
-  val firstNameFuture: Future[String] = Future.successful("Jane")
-  val lastNameOption: Option[String] = Some("Doe")
-
-  def greet: Future[Either[Throwable, String]] = {
-    val result: EitherT[Future, Throwable, String] = for {
-      g <- EitherT(greetingFutureEither)
-      f <- EitherT.liftF(firstNameFuture) // => Right(firstNameFuture)
-      l <- EitherT.fromOption[Future](lastNameOption, new Throwable("lastName not found"))// => EitherT(Future(Right(lastNameOption)))
-    } yield s"$g $f $l"
-
-    result.value
-  }
-}
-
-object Error {
-  case class User(id:String)
-
-  case class AwesomeError(msg: String)
-
-  type ResultT[F[_], A] = EitherT[F, AwesomeError, A]
-  type FutureResult[A] = ResultT[Future, A]
-
-  def getUser (id:String):FutureResult[User] = ???
-  def canBeUpdated (user:User):FutureResult[User] = ???
-  def update (user:User):FutureResult[User] = ???
-
-
-  def updateUser(user: User):FutureResult[User] = for {
-    u <- getUser(user.id)
-    _ <- canBeUpdated(u)
-    updatedUser <- updateUser(u)
-  } yield updatedUser
-}
+import scala.language.{higherKinds, postfixOps}
 
 
 case class User(id: Long, email: String, loyaltyPoints: Int)
 
-object V00 {
+// Initial code, with no MonadT
+object V0 {
   trait UserStore {
     def findUser(id: Long): Future[Either[Throwable, User]]
     def canBeUpdated(user: User): Future[Either[Throwable, Boolean]]
@@ -118,8 +23,8 @@ object V00 {
   class LoyaltyPointsV00(store: UserStore) {
     def addPoints(userId: Long, pointsToAdd: Int): Future[Either[Throwable, User]] = {
       val result: Future[Either[Throwable, User]] = for {
-        user <- store.findUser(userId)
-        _ <- user.right.map(store.canBeUpdated).left.map(Future.failed).merge
+        user        <- store.findUser(userId)
+        _           <- user.right.map(store.canBeUpdated).left.map(Future.failed).merge
         updatedUser <- user.right.map(store.updateUser(_)(pointsToAdd)).left.map(Future.failed).merge
       } yield updatedUser
       result
@@ -128,7 +33,8 @@ object V00 {
 }
 
 
-object V0 {
+// Introduce EitherT
+object V1 {
   trait UserStore {
     def findUser(id: Long): Future[Either[Throwable, User]]
     def canBeUpdated(user: User): Future[Either[Throwable, Boolean]]
@@ -138,8 +44,8 @@ object V0 {
   class LoyaltyPointsV0(store: UserStore) {
     def addPoints(userId: Long, pointsToAdd: Int): Future[Either[Throwable, User]] = {
       val result: EitherT[Future, Throwable, User] = for {
-        user <- EitherT(store.findUser(userId))
-        _ <- EitherT(store.canBeUpdated(user))
+        user        <- EitherT(store.findUser(userId))
+        _           <- EitherT(store.canBeUpdated(user))
         updatedUser <- EitherT(store.updateUser(user)(pointsToAdd))
       } yield updatedUser
 
@@ -148,7 +54,8 @@ object V0 {
   }
 }
 
-object V1 extends App {
+// Extract description from interpretation
+object V2 extends App {
 
   trait UserStoreAlg[F[_]] {
     def findUser(id: Long): F[Either[Throwable, User]]
@@ -159,8 +66,8 @@ object V1 extends App {
   class LoyaltyPointsV1[F[_]](store: UserStoreAlg[F])(implicit M: Monad[F]) {
     def addPoints(userId: Long, pointsToAdd: Int): F[Either[Throwable, User]] = {
       val result: EitherT[F, Throwable, User] = for {
-        user <- EitherT(store.findUser(userId))
-        _ <- EitherT(store.canBeUpdated(user))
+        user        <- EitherT(store.findUser(userId))
+        _           <- EitherT(store.canBeUpdated(user))
         updatedUser <- EitherT(store.updateUser(user)(pointsToAdd))
       } yield updatedUser
 
@@ -189,6 +96,7 @@ object V1 extends App {
     override def updateUser(user: User)(pointsToAdd: Int): Id[Either[Throwable, User]] =
       Right(user.copy(loyaltyPoints = user.loyaltyPoints + pointsToAdd))
   }
+
   object FutureInterpreter extends FutureInterpreter
 
   private val interpreter = new FutureInterpreter {}
@@ -198,8 +106,8 @@ object V1 extends App {
 
 }
 
-//Primer Refactor
-object V2 extends App{
+// Final refactor
+object V3 extends App{
 
   case class ServiceError(msg: String)
 
@@ -215,8 +123,8 @@ object V2 extends App{
   class LoyaltyPointsV2[F[_]](store: UserStoreAlgV2[F])(implicit M: Monad[F]) {
     def addPoints(userId: Long, pointsToAdd: Int): F[Either[ServiceError, User]] = {
       val result: ResultOrError[F, User] = for {
-        user <- store.findUser(userId)
-        _ <- store.canBeUpdated(user)
+        user        <- store.findUser(userId)
+        _           <- store.canBeUpdated(user)
         updatedUser <- store.updateUser(user)(pointsToAdd)
       } yield updatedUser
       result.value // EitherT[F, ServiceError, User] => F[Either[ServiceError, User]]
