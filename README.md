@@ -13,4 +13,4 @@ Code used in [Presentation: Demystifying Functional Programming]. Topics:
 * Monad Transformer
 * Example: refactoring a code using EitherT and separating description from interpretation
 
-[Presentation: Demystifying Functional Programming]:http://slides.com/diegoparra/deck-1
+[Presentation: Demystifying Functional Programming]:https://slides.com/diegoparra/demystifying-functional-programming
